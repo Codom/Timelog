@@ -1,0 +1,202 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+# vim:fenc=utf-8
+#
+# Copyright © 2020 chris <chris@home>
+#
+# Distributed under terms of the MIT license.
+
+"""
+Entypoint for this productivity thing
+"""
+import sys
+import csv
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+# from task import Task
+
+task_list = ['ignore']
+# Standard time format string used for all string date-time representations
+time_fmt = "%Y/%m/%d:%H:%M:%S"
+# Standard location for task 'database' files TODO? OS prefix/\\ fix
+config_prefix = "~/.config/timelog/"
+timelog_file = os.path.expanduser(config_prefix + "timelog.csv")
+task_file = os.path.expanduser(config_prefix + "tasks.todo.txt")
+projects_file = os.path.expanduser(config_prefix + "projects.csv")
+
+
+def check_config_files():
+    config_folder = os.path.expanduser("~/.config/timelog")
+    if not os.path.exists(config_folder):
+        os.mkdir(os.path.expanduser(config_folder))
+        Path(timelog_file).touch()
+        Path(task_file).touch()
+
+"""
+Will read from the tasks.csv file into
+a global tasks todo.txt file
+"""
+def read_tasks():
+    global current_task
+    global current_time
+    global task_list
+    check_config_files()
+    try:
+        tasks_file = open(task_file, 'r')
+        for line in tasks_file:
+            if line[0] != 'x':
+                task_list.append(line[:-1]) # Remove \n from line
+    except FileNotFoundError:
+        tasks_file = open(task_file, 'w')
+
+
+"""
+It's up to the caller to properly format task_list
+with time and task information
+"""
+def append_to_timelog(task_list):
+    with open(timelog_file, 'a') as timelog:
+        writer = csv.writer(timelog,delimiter=',',quotechar='"')
+        writer.writerow(task_list)
+
+def append_to_tasks(task_list):
+    with open(task_file, 'a') as todo_txt:
+        todo_txt.write(" ".join(task_list) + '\n')
+
+"""
+Will attempt to find the task in task_list
+that best matched task_string
+"""
+def find_task(list_of_tasks, task_as_list):
+    task_string = ' '.join(task_as_list)
+    task_candidates = []
+    for task in list_of_tasks:
+        if task_string in task:
+            task_candidates.append(task)
+    return task_candidates
+
+"""
+A task switch will record the current time
+and make an entry into the timelog.csv file.
+
+"""
+def switch(argv):
+    global task_list
+    task_candidates = find_task(task_list, argv)
+    choice = 0
+    if len(task_candidates) == 0:
+        print("Error, no task candidates for arg")
+        return
+    elif len(task_candidates) > 1:
+        print("Found multiple candidates for task, please chose one")
+        for i, task in zip(range(len(task_candidates)), task_candidates):
+            print(str(i) + " " + task)
+        choice = int(input("Enter the number for your task: "))
+    task = task_candidates[choice]
+    current_time = datetime.now()
+    append_to_timelog([current_time.strftime(time_fmt), task])
+
+def usage(argv):
+    print("task COMMAND ARG1 [ARG2, ...]")
+
+def status(argv):
+    # Read in the current task
+    current_task_line = open(timelog_file, 'r').readlines()[-1]
+    current_task_list = current_task_line.split(",")
+    current_time = datetime.strptime(current_task_list[0], time_fmt)
+    print("Currently working on: {0} {1}".format(current_task_list[1],
+        current_time.strftime(time_fmt)))
+
+def summation_analysis(argv):
+    try:
+        timelog = open(timelog_file, 'r')
+        reader = csv.reader(timelog)
+        current_time = datetime.now()
+        current_task = None
+        # Init summation table
+        summation_table = {}
+        for task in task_list:
+            if task[0] == 'x':
+                summation_table[task[2:]] = timedelta(0)
+            else:
+                summation_table[task] = timedelta(0)
+        for row in reader:
+            next_time = datetime.strptime(row[0], time_fmt)
+            if current_task and next_time - current_time > timedelta(0):
+                summation_table[current_task] += next_time - current_time
+            current_task = row[1]
+            current_time = next_time
+        for task in summation_table:
+            print(task, ',', summation_table[task])
+    except FileNotFoundError:
+        print("No timelog file found! Try switching into a task first.")
+        return
+
+"""
+Stop will simply mark a period of time with a generic
+ignore task
+"""
+def stop(argv):
+    switch(["ignore"])
+
+"""
+Adds new task
+"""
+def add(argv):
+    task_list = argv
+    append_to_tasks(task_list)
+
+def list_cmd(argv):
+    for task in task_list:
+        print(task)
+
+def project_add(argv): pass
+"""
+    try:
+        project_name = argv[0]
+        if project_name[0] != '+':
+            project_name = '+' + project_name
+        project_file = argv[1]
+    except IndexError:
+        print("Not enough arguments provided!")
+        return
+"""
+
+def project_remove(argv): pass
+
+def project_cmd(argv):
+    proj_cmd = {
+        'add': project_add,
+        'remove': project_remove
+    }
+    if len(argv) >= 2:
+        proj_cmd[argv[0]](argv[1:])
+
+"""
+Global command list & main
+"""
+command = {
+    'switch': switch,
+    'status': status,
+    'help': usage,
+    'stop': stop,
+    'add': add,
+    'list': list_cmd,
+    'project': project_cmd,
+    'analyze': summation_analysis
+}
+
+def main():
+    if(len(sys.argv) == 1):
+            status([])
+    elif(len(sys.argv) < 2):
+        usage([])
+        return 1
+    else:
+        read_tasks()
+        com = sys.argv[1]
+        command[com](sys.argv[2:])
+
+if __name__ == '__main__':
+    main()
